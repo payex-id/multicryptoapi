@@ -71,28 +71,18 @@ readonly class EthereumTxBuilder
 			$assetId = "0x{$assetId}";
 		}
 
-		$transaction = new Transaction(
+		$transaction = new EIP1559Transaction(
 			dechex($cnt),
+			dechex($gasPrice),
 			dechex($gasPrice),
 			dechex($gasLimit),
 			$assetId,
 			'',
-			$data,
+			$data
 		);
 
-		$hex = $transaction->getRaw($from->privateKey);
+		$hex = $transaction->getRaw($from->privateKey, $this->blockbook->chainId);
 		return new RawTransaction("0x" . $hex, '', [], [], bcmul($gasPrice, $gasLimit));
-	}
-
-	public static function bchexdec(string $hex): string
-	{
-		return base_convert($hex, 16, 10);
-//		$dec = 0;
-//		$len = strlen($hex);
-//		for ($i = 1; $i <= $len; $i++) {
-//			$dec = bcadd($dec, bcmul(strval(hexdec($hex[$i - 1])), bcpow('16', strval($len - $i))));
-//		}
-//		return $dec;
 	}
 
 	public static function bcdechex(string $dec): string
