@@ -85,6 +85,11 @@ readonly class EthereumTxBuilder
 		return new RawTransaction("0x" . $hex, '', [], [], bcmul($gasPrice, $gasLimit));
 	}
 
+	public static function bchexdec(string $hex): string
+	{
+		return base_convert($hex, 16, 10);
+	}
+
 	public static function bcdechex(string $dec): string
 	{
 		$end = bcmod($dec, '16');
