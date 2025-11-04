@@ -20,8 +20,8 @@
   },
   "license": "MIT",
   "autoload": {
-	"psr-0": {
-	  "Chikiday\\MultiCryptoApi": "src/"
+	"psr-4": {
+	  "MultiCryptoApi\\": "src/"
 	}
   },
   "authors": [

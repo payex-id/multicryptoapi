@@ -4,12 +4,12 @@ error_reporting(E_ALL ^ E_DEPRECATED);
 
 require_once __DIR__ . "/../vendor/autoload.php";
 
-use Chikiday\MultiCryptoApi\Blockbook\EthereumBlockbook;
-use Chikiday\MultiCryptoApi\Blockchain\RpcCredentials;
-use Chikiday\MultiCryptoApi\Log\StdoutLogger;
-use Chikiday\MultiCryptoApi\Model\IncomingBlock;
-use Chikiday\MultiCryptoApi\Model\IncomingTransaction;
-use Chikiday\MultiCryptoApi\Stream\EthereumStream;
+use MultiCryptoApi\Provider\EthereumBlockbook;
+use MultiCryptoApi\Blockchain\RpcCredentials;
+use MultiCryptoApi\Log\StdoutLogger;
+use MultiCryptoApi\Model\IncomingBlock;
+use MultiCryptoApi\Model\IncomingTransaction;
+use MultiCryptoApi\Stream\EthereumStream;
 
 $keys = include_once __DIR__ . '/keys.php';
 

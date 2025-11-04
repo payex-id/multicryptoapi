@@ -4,12 +4,12 @@ error_reporting(E_ALL ^ E_DEPRECATED);
 
 require_once __DIR__ . "/../vendor/autoload.php";
 
-use Chikiday\MultiCryptoApi\Blockbook\TrxBlockbook;
-use Chikiday\MultiCryptoApi\Blockchain\RpcCredentials;
-use Chikiday\MultiCryptoApi\Model\IncomingTransaction;
-use Chikiday\MultiCryptoApi\Stream\TronStream;
-use Chikiday\MultiCryptoApi\Stream\Logger\FileLogger;
-use Chikiday\MultiCryptoApi\Stream\TrxStream;
+use MultiCryptoApi\Provider\TrxBlockbook;
+use MultiCryptoApi\Blockchain\RpcCredentials;
+use MultiCryptoApi\Model\IncomingTransaction;
+use MultiCryptoApi\Stream\TronStream;
+use MultiCryptoApi\Stream\Logger\FileLogger;
+use MultiCryptoApi\Stream\TrxStream;
 
 $keys = include_once __DIR__ . '/keys.php';
 
@@ -27,7 +27,7 @@ $blockbook = new TrxBlockbook(
 $stream = new TronStream($blockbook);
 
 
-$logger = new \Chikiday\MultiCryptoApi\Log\StdoutLogger();
+$logger = new \MultiCryptoApi\Log\StdoutLogger();
 $stream->setLogger($logger);
 
 $stream->subscribeToAnyTransaction(function (IncomingTransaction $tx) {

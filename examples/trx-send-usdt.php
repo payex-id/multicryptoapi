@@ -4,12 +4,12 @@ error_reporting(E_ALL ^ E_DEPRECATED);
 
 require_once __DIR__ . "/../vendor/autoload.php";
 
-use Chikiday\MultiCryptoApi\Api\TronApiClient;
-use Chikiday\MultiCryptoApi\Blockbook\TrxBlockbook;
-use Chikiday\MultiCryptoApi\Blockchain\AddressCredentials;
-use Chikiday\MultiCryptoApi\Blockchain\Amount;
-use Chikiday\MultiCryptoApi\Blockchain\Fee;
-use Chikiday\MultiCryptoApi\Blockchain\RpcCredentials;
+use MultiCryptoApi\Api\TronApiClient;
+use MultiCryptoApi\Provider\TrxBlockbook;
+use MultiCryptoApi\Blockchain\AddressCredentials;
+use MultiCryptoApi\Blockchain\Amount;
+use MultiCryptoApi\Blockchain\Fee;
+use MultiCryptoApi\Blockchain\RpcCredentials;
 
 $keys = include_once __DIR__ . '/keys.php';
 

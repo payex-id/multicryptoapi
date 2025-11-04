@@ -4,8 +4,8 @@ error_reporting(E_ALL ^ E_DEPRECATED);
 
 require_once __DIR__ . "/../vendor/autoload.php";
 
-use Chikiday\MultiCryptoApi\Blockbook\EthereumBlockbook;
-use Chikiday\MultiCryptoApi\Blockchain\RpcCredentials;
+use MultiCryptoApi\Provider\EthereumBlockbook;
+use MultiCryptoApi\Blockchain\RpcCredentials;
 use Web3\Contracts\Ethabi;
 
 $keys = include_once __DIR__ . '/keys.php';

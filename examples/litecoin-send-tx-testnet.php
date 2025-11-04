@@ -5,12 +5,12 @@ error_reporting(E_ALL ^ E_DEPRECATED);
 require_once __DIR__ . "/../vendor/autoload.php";
 
 use BitWasp\Bitcoin\Network\Networks\LitecoinTestnet;
-use Chikiday\MultiCryptoApi\Api\BitcoinApiClient;
-use Chikiday\MultiCryptoApi\Blockbook\BitcoinBlockbook;
-use Chikiday\MultiCryptoApi\Blockchain\AddressCredentials;
-use Chikiday\MultiCryptoApi\Blockchain\Amount;
-use Chikiday\MultiCryptoApi\Blockchain\Fee;
-use Chikiday\MultiCryptoApi\Blockchain\RpcCredentials;
+use MultiCryptoApi\Api\BitcoinApiClient;
+use MultiCryptoApi\Provider\BitcoinBlockbook;
+use MultiCryptoApi\Blockchain\AddressCredentials;
+use MultiCryptoApi\Blockchain\Amount;
+use MultiCryptoApi\Blockchain\Fee;
+use MultiCryptoApi\Blockchain\RpcCredentials;
 
 $keys = include_once __DIR__ . '/keys.php';
 

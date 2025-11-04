@@ -3,8 +3,8 @@
 require_once __DIR__ . "/../vendor/autoload.php";
 
 use BitWasp\Bitcoin\Bitcoin;
-use Chikiday\MultiCryptoApi\Blockbook\BitcoinBlockbook;
-use Chikiday\MultiCryptoApi\Blockchain\RpcCredentials;
+use MultiCryptoApi\Provider\BitcoinBlockbook;
+use MultiCryptoApi\Blockchain\RpcCredentials;
 
 $keys = include_once __DIR__ . '/keys.php';
 
@@ -19,7 +19,7 @@ $blockbook = new BitcoinBlockbook(
 	Bitcoin::getNetwork(),
 );
 
-$api = new \Chikiday\MultiCryptoApi\Api\BitcoinApiClient($blockbook);
+$api = new \MultiCryptoApi\Api\BitcoinApiClient($blockbook);
 
 $wallet = $api->createWallet();
 echo "Wallet {$wallet->address}\n";

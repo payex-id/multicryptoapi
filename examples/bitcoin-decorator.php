@@ -3,10 +3,10 @@
 require_once __DIR__ . "/../vendor/autoload.php";
 
 use BitWasp\Bitcoin\Bitcoin;
-use Chikiday\MultiCryptoApi\Blockbook\BitcoinBlockbook;
-use Chikiday\MultiCryptoApi\Blockchain\RpcCredentials;
-use Chikiday\MultiCryptoApi\Model\Enum\TransactionDirection;
-use Chikiday\MultiCryptoApi\Decorator\BitcoinDecorator;
+use MultiCryptoApi\Provider\BitcoinBlockbook;
+use MultiCryptoApi\Blockchain\RpcCredentials;
+use MultiCryptoApi\Model\Enum\TransactionDirection;
+use MultiCryptoApi\Decorator\BitcoinDecorator;
 
 $keys = include_once __DIR__ . '/keys.php';
 
