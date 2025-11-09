@@ -21,9 +21,9 @@ class BitcoinBlockbook extends BlockbookAbstract
 	private Client $rpc;
 
 	public function __construct(
-		public RpcCredentials $credentials,
+		public RpcCredentials   $credentials,
 		public NetworkInterface $network,
-		protected $options = [],
+		protected array         $options = [],
 	) {
 		$this->rpc = new Client($this->credentials->uri);
 		parent::__construct($credentials, $options);
