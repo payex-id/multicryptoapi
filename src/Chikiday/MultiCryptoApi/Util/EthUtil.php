@@ -23,7 +23,7 @@ class EthUtil
 
 	public function getTransferByLog(TokenInfo $token, array $log): ?EthTransferLog
 	{
-		if ($token->contract != $log['address']) {
+		if (strtolower($token->contract) != strtolower($log['address'])) {
 			return null;
 		}
 

@@ -29,25 +29,117 @@ class EthereumRpc extends EthereumBlockbook
 		int    $pageSize = 1000,
 	): TransactionList
 	{
-		// here we use Etherscan api to avoid hell with eth_getLogs rpc
-		$address = strtolower($address);
+		try {
+			$list = $this->fetchViaEtherscanAddressTxs($address, $page, $pageSize);
 
+			return $this->buildTransactionList($list, $page, $pageSize, true);
+		} catch (\Throwable $e) {
+			$list = $this->fetchViaRpcAddressTxs($address, $page, $pageSize);
+
+			return $this->buildTransactionList($list, $page, $pageSize, false, ['fallback' => 'rpc']);
+		}
+	}
+
+	private function fetchViaEtherscanAddressTxs(string $address, int $page, int $pageSize): array
+	{
+		$address = strtolower($address);
 		$tokens = $this->getAllowedTokens();
 		$list = [];
 		foreach ($tokens as $token) {
 			$list = array_merge($list, $this->getErc20Txs($token, $address, $page, $pageSize));
 		}
-
 		$list = array_merge($list, $this->getNormalAddressTxs($address, $page, $pageSize));
 
-		usort($list, function ($a, $b) {
+		return $list;
+	}
+
+	private function fetchViaRpcAddressTxs(string $address, int $page, int $pageSize): array
+	{
+		$address = strtolower($address);
+		$tokens = $this->getAllowedTokens();
+		$all = [];
+		foreach ($tokens as $token) {
+			$all = array_merge($all, $this->getErc20TxsRpc($token, $address, $page, $pageSize));
+		}
+		// ETH transfers via trace_filter only; let errors bubble up if unsupported
+		$all = array_merge($all, $this->getNormalAddressTxsRpcTrace($address, $page, $pageSize));
+
+		return $all;
+	}
+
+
+	private function getNormalAddressTxsRpcTrace(string $address, int $page, int $pageSize): array
+	{
+		$transactions = [];
+
+		$addr = strtolower($address);
+		$base = [
+			'count' => $pageSize * 3, // some providers expect numeric uint64, not hex string
+		];
+
+		$paramsOut = $base + ['fromAddress' => [$addr]];
+		$paramsIn = $base + ['toAddress' => [$addr]];
+
+		$out = $this->jsonRpcWithRetry('trace_filter', [$paramsOut]);
+		$in = $this->jsonRpcWithRetry('trace_filter', [$paramsIn]);
+
+		$hashes = [];
+		foreach ([$out, $in] as $traces) {
+			foreach ($traces as $t) {
+				if (($t['type'] ?? '') !== 'call') {
+					continue;
+				}
+				// top-level only (no internal transfers)
+				if (!empty($t['traceAddress'])) {
+					continue;
+				}
+				$valHex = $t['action']['value'] ?? '0x0';
+				if (hexdec($valHex) <= 0) {
+					continue;
+				}
+				if (!empty($t['transactionHash'])) {
+					$hashes[$t['transactionHash']] = true;
+				}
+			}
+		}
+
+		foreach (array_keys($hashes) as $hash) {
+			if ($tx = $this->getTx($hash)) {
+				$transactions[] = $tx;
+			}
+		}
+
+		usort($transactions, function ($a, $b) {
 			return $b->blockNumber <=> $a->blockNumber;
 		});
 
+		return $transactions;
+	}
+
+	private function buildTransactionList(
+		array $txs, int $page, int $pageSize, bool $alreadyPaginated = false, array $originData = []
+	): TransactionList
+	{
+		usort($txs, function ($a, $b) {
+			return $b->blockNumber <=> $a->blockNumber;
+		});
+
+		if ($alreadyPaginated) {
+			return new TransactionList(
+				$txs,
+				$page,
+				count($txs) == $pageSize ? $page + 1 : $page,
+				$originData
+			);
+		}
+
+		$offset = max(0, ($page - 1) * $pageSize);
+		$paged = array_slice($txs, $offset, $pageSize);
 		return new TransactionList(
-			$list,
+			$paged,
 			$page,
-			count($list) == $pageSize ? $page + 1 : $page
+			count($paged) == $pageSize ? $page + 1 : $page,
+			$originData
 		);
 	}
 
@@ -82,7 +174,7 @@ class EthereumRpc extends EthereumBlockbook
 		$receipt = $this->jsonRpcWithRetry('eth_getTransactionReceipt', [$txid]);
 		$success = hexdec($receipt['status'] ?? "0x") > 0;
 
-		$token = $this->getAllowedTokens()[$data['to'] ?? ''] ?? null;
+		$token = $this->getAllowedTokens()[strtolower($data['to'] ?? '')] ?? null;
 		if ($token) {
 			if (!$success) {
 				$error = "unsuccessful";
@@ -225,7 +317,7 @@ class EthereumRpc extends EthereumBlockbook
 		$_assets = [];
 		foreach ($tokens as $token) {
 			$info = $this->getTokenInfo($token);
-			$_assets[$token] = $info;
+			$_assets[strtolower($token)] = $info;
 		}
 
 		return $this->allowedTokens = $_assets;
@@ -324,5 +416,90 @@ class EthereumRpc extends EthereumBlockbook
 		}
 
 		return $txs;
+	}
+
+	/**
+	 * Fallback: fetch ERC-20 txs via RPC eth_getLogs
+	 */
+	private function getErc20TxsRpc(TokenInfo $tokenInfo, string $address, int $page, int $pageSize): array
+	{
+		$transactions = [];
+		$latest = $this->getLatestBlockNumber();
+		$lookback = (int) ($this->getOption('erc20Lookback') ?? 50000); // общее окно поиска по блокам
+		$blocksPerQuery = (int) ($this->getOption(
+			'erc20BlocksPerQuery'
+		) ?? 10000); // размер окна (кол-во блоков) за один запрос
+		if ($blocksPerQuery < 1) {
+			$blocksPerQuery = 10000;
+		}
+		$startBlock = max(0, $latest - $lookback + 1);
+
+		$transferSig = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+		$topicAddress = '0x' . str_pad(substr(strtolower($address), 2), 64, '0', STR_PAD_LEFT);
+
+		$hashes = [];
+		// Идём чанками по блокам, чтобы избежать лимита 10k блоков за запрос
+		for ($to = $latest; $to >= $startBlock; $to -= $blocksPerQuery) {
+			$from = max($startBlock, $to - $blocksPerQuery + 1);
+
+			$queries = [
+				[
+					'address'   => strtolower($tokenInfo->contract),
+					'fromBlock' => '0x' . dechex($from),
+					'toBlock'   => '0x' . dechex($to),
+					'topics'    => [
+						$transferSig,
+						$topicAddress, // from == address
+					],
+				],
+				[
+					'address'   => strtolower($tokenInfo->contract),
+					'fromBlock' => '0x' . dechex($from),
+					'toBlock'   => '0x' . dechex($to),
+					'topics'    => [
+						$transferSig,
+						null,
+						$topicAddress, // to == address
+					],
+				],
+			];
+
+			foreach ($queries as $params) {
+				try {
+					$logs = $this->jsonRpcWithRetry('eth_getLogs', [$params]);
+					foreach ($logs as $log) {
+						if (!empty($log['transactionHash'])) {
+							$hashes[$log['transactionHash']] = true;
+						}
+					}
+				} catch (\Throwable $e) {
+					// ignore log fetch errors per-query
+				}
+			}
+		}
+
+		$unique = array_keys($hashes);
+		foreach ($unique as $hash) {
+			try {
+				if ($tx = $this->getTx($hash)) {
+					$transactions[] = $tx;
+				}
+			} catch (\Throwable $e) {
+				// ignore bad tx
+			}
+		}
+
+		usort($transactions, function ($a, $b) {
+			return $b->blockNumber <=> $a->blockNumber;
+		});
+
+		return $transactions;
+	}
+
+	private function getLatestBlockNumber(): int
+	{
+		$result = $this->jsonRpcWithRetry('eth_blockNumber', []);
+
+		return hexdec($result);
 	}
 }
