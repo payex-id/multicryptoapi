@@ -205,6 +205,7 @@ class EthereumRpc extends EthereumBlockbook
 			}
 		} else {
 			$value = $util->hexToDec($data['value']);
+			$value = Amount::satoshi($value, $this->decimals);
 
 			$outputs[] = new TxvInOut(
 				$data['from'],
@@ -425,10 +426,10 @@ class EthereumRpc extends EthereumBlockbook
 	{
 		$transactions = [];
 		$latest = $this->getLatestBlockNumber();
-		$lookback = (int) ($this->getOption('erc20Lookback') ?? 50000); // общее окно поиска по блокам
-		$blocksPerQuery = (int) ($this->getOption(
-			'erc20BlocksPerQuery'
-		) ?? 10000); // размер окна (кол-во блоков) за один запрос
+		$lookback = (int) ($this->getOption('erc20Lookback') ?? 10000); // общее окно поиска по блокам
+
+		// размер окна (кол-во блоков) за один запрос
+		$blocksPerQuery = (int) ($this->getOption('erc20BlocksPerQuery') ?? 10000);
 		if ($blocksPerQuery < 1) {
 			$blocksPerQuery = 10000;
 		}
