@@ -5,13 +5,15 @@ namespace Chikiday\MultiCryptoApi\Stream;
 use BitWasp\Bitcoin\Network\Networks\Bitcoin;
 use Chikiday\MultiCryptoApi\Blockbook\BitcoinBlockbook;
 use Chikiday\MultiCryptoApi\Blockchain\Amount;
+use Chikiday\MultiCryptoApi\Interface\StreamableInterface;
 use Chikiday\MultiCryptoApi\Model\IncomingBlock;
 use Chikiday\MultiCryptoApi\Model\IncomingTransaction;
 use Chikiday\MultiCryptoApi\Stream\Abstract\AbstractStream;
 use Throwable;
 
 /**
- * todo: надо переписать на ратчет
+ * todo: need to refactor to ratchet
+ * wip. not works now.
  */
 class BitcoinStream extends AbstractStream
 {
@@ -141,5 +143,11 @@ class BitcoinStream extends AbstractStream
 
 		// nownodes wss
 		return "wss://{$domain}/wss/{$this->blockbook->credentials->getHeaders()['api-key']}";
+	}
+
+	public function cancelSubscriptions(): StreamableInterface
+	{
+		// TODO: Implement cancelSubscriptions() method.
+		return $this;
 	}
 }
