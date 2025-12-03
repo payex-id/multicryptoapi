@@ -38,12 +38,12 @@ class TransactionDecorator implements TransactionDecoratorInterface
 		foreach ($tx->outputs as $output) {
 			$this->toAll[$output->address] = $output->address;
 
-			if ($this->isSameAddr($output->address)) {
+			if ($output->address && $this->isSameAddr($output->address)) {
 				$this->direction ??= TransactionDirection::Incoming;
 				if ($output->amount->satoshi > 0) {
 					$this->transferred += (float)$output->amount->toBtc();
 				}
-			} else {
+			} else if($output->address) {
 				$this->to ??= $output->address;
 			}
 
