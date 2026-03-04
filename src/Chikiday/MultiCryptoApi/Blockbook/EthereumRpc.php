@@ -57,48 +57,71 @@ class EthereumRpc extends EthereumBlockbook
 	{
 		$address = strtolower($address);
 		$tokens = $this->getAllowedTokens();
-		$all = [];
+		$erc20 = [];
 		foreach ($tokens as $token) {
-			$all = array_merge($all, $this->getErc20TxsRpc($token, $address, $page, $pageSize));
+			try {
+				$erc20 = array_merge($erc20, $this->getErc20TxsRpc($token, $address, $page, $pageSize));
+			} catch (\Throwable $e) {
+				continue;
+			}
 		}
-		// ETH transfers via trace_filter only; let errors bubble up if unsupported
-		$all = array_merge($all, $this->getNormalAddressTxsRpcTrace($address, $page, $pageSize));
+		
+		$normal = [];
+		try {
+			$normal = $this->getNormalAddressTxsRpcTrace($address, $page, $pageSize);
+		} catch (\Throwable $e) {
+			$normal = [];
+		}
 
-		return $all;
+		return array_merge($erc20, $normal);
 	}
 
 
 	private function getNormalAddressTxsRpcTrace(string $address, int $page, int $pageSize): array
 	{
 		$transactions = [];
-
 		$addr = strtolower($address);
-		$base = [
-			'count' => $pageSize * 3, // some providers expect numeric uint64, not hex string
-		];
 
-		$paramsOut = $base + ['fromAddress' => [$addr]];
-		$paramsIn = $base + ['toAddress' => [$addr]];
-
-		$out = $this->jsonRpcWithRetry('trace_filter', [$paramsOut]);
-		$in = $this->jsonRpcWithRetry('trace_filter', [$paramsIn]);
+		$latest = $this->getLatestBlockNumber();
+		$lookback = (int) ($this->getOption('traceLookback') ?? 10000);
+		$blocksPerQuery = (int) ($this->getOption('traceBlocksPerQuery') ?? 10000);
+		if ($blocksPerQuery < 1) {
+			$blocksPerQuery = 10000;
+		}
+		$startBlock = max(0, $latest - $lookback + 1);
 
 		$hashes = [];
-		foreach ([$out, $in] as $traces) {
-			foreach ($traces as $t) {
-				if (($t['type'] ?? '') !== 'call') {
-					continue;
-				}
-				// top-level only (no internal transfers)
-				if (!empty($t['traceAddress'])) {
-					continue;
-				}
-				$valHex = $t['action']['value'] ?? '0x0';
-				if (hexdec($valHex) <= 0) {
-					continue;
-				}
-				if (!empty($t['transactionHash'])) {
-					$hashes[$t['transactionHash']] = true;
+		for ($to = $latest; $to >= $startBlock; $to -= $blocksPerQuery) {
+			$from = max($startBlock, $to - $blocksPerQuery + 1);
+
+			$base = [
+				'count'     => $pageSize * 3, // some providers expect numeric uint64, not hex string
+				'fromBlock' => '0x' . dechex($from),
+				'toBlock'   => '0x' . dechex($to),
+			];
+
+			$paramsOut = $base + ['fromAddress' => [$addr]];
+			$paramsIn = $base + ['toAddress' => [$addr]];
+
+			$out = $this->jsonRpcWithRetry('trace_filter', [$paramsOut]);
+			$in = $this->jsonRpcWithRetry('trace_filter', [$paramsIn]);
+
+			foreach ([$out, $in] as $traces) {
+				foreach ($traces as $t) {
+					if (($t['type'] ?? '') !== 'call') {
+						continue;
+					}
+					// top-level only (no internal transfers)
+					if (!empty($t['traceAddress'])) {
+						continue;
+					}
+					$valHex = $t['action']['value'] ?? '0x0';
+					if (hexdec($valHex) <= 0) {
+						continue;
+					}
+					if (!empty($t['transactionHash'])) {
+						$hashes[$t['transactionHash']] = true;
+					}
 				}
 			}
 		}
