@@ -3,6 +3,7 @@
 namespace Chikiday\MultiCryptoApi\Blockbook\Abstract;
 
 
+use Chikiday\MultiCryptoApi\Blockbook\Trait\EtherscanTrait;
 use Chikiday\MultiCryptoApi\Blockchain\Address;
 use Chikiday\MultiCryptoApi\Blockchain\Amount;
 use Chikiday\MultiCryptoApi\Blockchain\Asset;
@@ -14,8 +15,10 @@ use Chikiday\MultiCryptoApi\Blockchain\Transaction;
 use Chikiday\MultiCryptoApi\Blockchain\TransactionList;
 use Chikiday\MultiCryptoApi\Blockchain\TxvInOut;
 use Chikiday\MultiCryptoApi\Blockchain\UTXO;
+use Chikiday\MultiCryptoApi\Exception\MultiCryptoApiException;
 use Chikiday\MultiCryptoApi\Interface\BlockbookInterface;
 use Chikiday\MultiCryptoApi\Interface\BlockchainDataResolver;
+use Chikiday\MultiCryptoApi\Model\TokenInfo;
 use Chikiday\MultiCryptoApi\Util\Throttler;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
@@ -26,6 +29,10 @@ use Override;
  */
 abstract class BlockbookAbstract implements BlockbookInterface, BlockchainDataResolver
 {
+	use EtherscanTrait;
+
+	protected ?array $allowedTokens = null;
+
 	protected Client $http;
 
 	protected int $decimals = 8;
@@ -37,7 +44,7 @@ abstract class BlockbookAbstract implements BlockbookInterface, BlockchainDataRe
 
 	public function __construct(
 		protected RpcCredentials $credentials,
-		array $options = []
+		array                    $options = []
 	)
 	{
 		$this->options = $options;
@@ -47,6 +54,30 @@ abstract class BlockbookAbstract implements BlockbookInterface, BlockchainDataRe
 	{
 		return $this->options[$key] ?? null;
 	}
+
+	/**
+	 * @return TokenInfo[]
+	 */
+	protected function getAllowedTokens(): array
+	{
+		if (isset($this->allowedTokens)) {
+			return $this->allowedTokens;
+		}
+
+		$tokens = $this->getOption('tokens') ?? [];
+		if (empty($tokens)) {
+			throw new MultiCryptoApiException("tokens is not configured");
+		}
+		$_assets = [];
+		foreach ($tokens as $token) {
+			$info = $this->getTokenInfo($token);
+			$_assets[strtolower($token)] = $info;
+		}
+
+		return $this->allowedTokens = $_assets;
+	}
+
+	abstract public function getTokenInfo(string $address): ?TokenInfo;
 
 	#[Override] public function getName(): string
 	{
@@ -64,14 +95,15 @@ abstract class BlockbookAbstract implements BlockbookInterface, BlockchainDataRe
 		int    $pageSize = 1000,
 	): TransactionList
 	{
-		$data = $this->loadAddress($address, $page, $pageSize, 'txs');
+		try {
+			return $this->loadBlockbook($address, $page, $pageSize);
+		} catch (\Throwable $e) {
+			if ( $this->isEvmLike() && $this->hasEtherscanToken()) {
+				return $this->getTransactionListViaEtherscan($address, $page, $pageSize);
+			}
 
-		$result = [];
-		foreach ($data['transactions'] ?? [] as $tx) {
-			$result[] = $this->resolveTx($tx);
+			throw $e;
 		}
-
-		return new TransactionList($result, $data['page'], $data['totalPages']);
 	}
 
 	public function resolveTx(mixed $data): Transaction
@@ -267,5 +299,35 @@ abstract class BlockbookAbstract implements BlockbookInterface, BlockchainDataRe
 		$response = $this->http()->get($uri);
 
 		return json_decode($response->getBody()->getContents(), true);
+	}
+
+	protected function loadBlockbook(string $address, int $page, int $pageSize): TransactionList
+	{
+		$data = $this->loadAddress($address, $page, $pageSize, 'txs');
+
+		$result = [];
+		foreach ($data['transactions'] ?? [] as $tx) {
+			$result[] = $this->resolveTx($tx);
+		}
+
+		return new TransactionList($result, $data['page'], $data['totalPages']);
+	}
+
+	protected function isEvmLike(): bool
+	{
+		return in_array(strtolower($this->name), [
+			'ethereum',
+			'binance',
+			'polygon',
+			'avalanche',
+			'optimism',
+			'arbitrum',
+			'base',
+			'nova',
+			'zksync',
+			'zkevm',
+			'zkspace',
+			'zkspace',
+		]);
 	}
 }

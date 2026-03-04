@@ -12,7 +12,7 @@ $keys = include_once __DIR__ . '/keys.php';
 
 $rpc = new EthereumRpc(
 	new RpcCredentials(
-		'https://bsc.nownodes.io/' . $keys['NowNodes'],
+		"https://side-omniscient-pine.bsc.quiknode.pro/{$keys["QuickNode"]}/",
 		'https://bsc-blockbook.nownodes.io',
 		[
 			'api-key' => $keys['NowNodes'],
@@ -38,11 +38,30 @@ $blockbook = new EthereumBlockbook(
 		]
 	),
 	null,
-	56
+	56,
+	[
+		'tokens' => [
+			$contractAddress = '0x55d398326f99059ff775485246999027b3197955',
+		],
+		'etherscanApiKey' => $keys['Etherscan'],
+	]
 );
 
 
-$address = '0xcbF593BfB22aa8B4dc561616b2D10dbe0DbE0666';
+$address = '0x85a32f91977724749bc61b37844ab101baaf4326';
+
+try {
+	$time = microtime(true);
+	$list = $blockbook->getAddressTransactions($address);
+	$time = round(microtime(true) - $time, 5);
+	echo "Loaded ". count($list->transactions) ." txs from Blockbook api, for {$time} seconds.\n";
+	foreach ($list->transactions as $transaction) {
+		echo "TX {$transaction->txid}\n";
+	}
+} catch (\Exception $e) {
+	echo "Cant load txs by Blockbook: {$e->getMessage()}\n";
+}
+
 try {
 	$time = microtime(true);
 	$list = $rpc->getAddressTransactions($address);
@@ -57,16 +76,4 @@ try {
 	}
 } catch (\Exception $e) {
 	echo "Cant load txs by RPC: {$e->getMessage()}\n";
-}
-
-try {
-	$time = microtime(true);
-	$list = $blockbook->getAddressTransactions($address);
-	$time = round(microtime(true) - $time, 5);
-	echo "Loaded ". count($list->transactions) ." txs from Blockbook api, for {$time} seconds.\n";
-	foreach ($list->transactions as $transaction) {
-		echo "TX {$transaction->txid}\n";
-	}
-} catch (\Exception $e) {
-	echo "Cant load txs by Blockbook: {$e->getMessage()}\n";
 }

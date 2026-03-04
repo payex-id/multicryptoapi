@@ -24,13 +24,14 @@ $blockbook = new EthereumRpc(
 			$contractAddress = '0x55d398326f99059ff775485246999027b3197955',
 		],
 		'erc20Lookback' => 50000,
-		'erc20BlocksPerQuery' => 10000
+		'erc20BlocksPerQuery' => 10000,
+		'etherscanApiKey' => $keys['Etherscan'],
 	]
 
 );
 
 $time = microtime(true);
-$txs = $blockbook->getAddressTransactions("0x4b4737cc2b98e4fcd4dd39355a44cb4effb1b856");
+$txs = $blockbook->getAddressTransactions("0x30475a5e108fde0fed071b240bc2140ec8416894");
 $time = microtime(true) - $time;
 
 echo "TXs: " . count($txs->transactions) . " loaded for {$time} s.\n";

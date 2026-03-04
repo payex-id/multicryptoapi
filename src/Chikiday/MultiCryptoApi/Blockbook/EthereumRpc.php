@@ -3,6 +3,7 @@
 namespace Chikiday\MultiCryptoApi\Blockbook;
 
 
+use Chikiday\MultiCryptoApi\Blockbook\Trait\EtherscanTrait;
 use Chikiday\MultiCryptoApi\Blockchain\Address;
 use Chikiday\MultiCryptoApi\Blockchain\Amount;
 use Chikiday\MultiCryptoApi\Blockchain\Asset;
@@ -11,7 +12,6 @@ use Chikiday\MultiCryptoApi\Blockchain\RpcCredentials;
 use Chikiday\MultiCryptoApi\Blockchain\Transaction;
 use Chikiday\MultiCryptoApi\Blockchain\TransactionList;
 use Chikiday\MultiCryptoApi\Blockchain\TxvInOut;
-use Chikiday\MultiCryptoApi\Exception\MultiCryptoApiException;
 use Chikiday\MultiCryptoApi\Model\TokenInfo;
 use Chikiday\MultiCryptoApi\Util\EthUtil;
 use Override;
@@ -21,7 +21,7 @@ use Override;
  */
 class EthereumRpc extends EthereumBlockbook
 {
-	protected ?array $allowedTokens = null;
+	use EtherscanTrait;
 
 	#[Override] public function getAddressTransactions(
 		string $address,
@@ -40,19 +40,6 @@ class EthereumRpc extends EthereumBlockbook
 		}
 	}
 
-	private function fetchViaEtherscanAddressTxs(string $address, int $page, int $pageSize): array
-	{
-		$address = strtolower($address);
-		$tokens = $this->getAllowedTokens();
-		$list = [];
-		foreach ($tokens as $token) {
-			$list = array_merge($list, $this->getErc20Txs($token, $address, $page, $pageSize));
-		}
-		$list = array_merge($list, $this->getNormalAddressTxs($address, $page, $pageSize));
-
-		return $list;
-	}
-
 	private function fetchViaRpcAddressTxs(string $address, int $page, int $pageSize): array
 	{
 		$address = strtolower($address);
@@ -66,7 +53,6 @@ class EthereumRpc extends EthereumBlockbook
 			}
 		}
 		
-		$normal = [];
 		try {
 			$normal = $this->getNormalAddressTxsRpcTrace($address, $page, $pageSize);
 		} catch (\Throwable $e) {
@@ -295,151 +281,6 @@ class EthereumRpc extends EthereumBlockbook
 	#[Override] public function getUTXO(string $address, bool $confirmed = true): array
 	{
 		return [];
-	}
-
-	protected function etherscanApiQuery(array $params): array
-	{
-		if (!$token = $this->getOption('etherscanApiKey')) {
-			throw new MultiCryptoApiException("EtherscanApiKey is required");
-		}
-
-		$params = array_merge([
-			'chainId' => $this->chainId,
-			'apikey'  => $token,
-		], $params);
-
-		$url = "https://api.etherscan.io/v2/api?" . http_build_query($params);
-
-		$response = $this->http()->get($url)->getBody()->getContents();
-
-		$data = json_decode($response, true);
-
-		if ($data['status'] == 1) {
-			return $data['result'] ?? [];
-		}
-
-		if (str_contains($data['message'], 'No transactions found')) {
-			return [];
-		}
-
-		throw new \Exception("Etherscan API error: " . $data['message']);
-	}
-
-	/**
-	 * @return TokenInfo[]
-	 */
-	protected function getAllowedTokens(): array
-	{
-		if (isset($this->allowedTokens)) {
-			return $this->allowedTokens;
-		}
-
-		$tokens = $this->getOption('tokens') ?? [];
-		if (empty($tokens)) {
-			throw new MultiCryptoApiException("tokens is not configured");
-		}
-		$_assets = [];
-		foreach ($tokens as $token) {
-			$info = $this->getTokenInfo($token);
-			$_assets[strtolower($token)] = $info;
-		}
-
-		return $this->allowedTokens = $_assets;
-	}
-
-	private function getErc20Txs(TokenInfo $tokenInfo, string $address, int $page, int $pageSize): array
-	{
-		$data = $this->etherscanApiQuery([
-			'module'          => 'account',
-			'action'          => 'tokentx',
-			'contractaddress' => $tokenInfo->contract,
-			'address'         => $address,
-			'page'            => $page,
-			'offset'          => $pageSize,
-			'startblock'      => 0,
-			'endblock'        => 'latest',
-			'sort'            => 'desc',
-		]);
-
-		$txs = [];
-		foreach ($data as $tx) {
-			$asset = $tokenInfo->toAsset($tx['value'], $tx['from'], $tx['to']);
-
-			$txs[] = new Transaction(
-				$tx['hash'],
-				$tx['blockNumber'],
-				$tx['confirmations'],
-				$tx['timeStamp'],
-				[
-					new TxvInOut(
-						$tx['from'],
-						Amount::satoshi("0", $this->getDecimals()),
-						$tx['transactionIndex'],
-						[$asset],
-					),
-				],
-				[
-					new TxvInOut(
-						$tx['to'],
-						Amount::satoshi("0", $this->getDecimals()),
-						$tx['transactionIndex'],
-						[$asset],
-					),
-				],
-				"0",
-				$tx
-			);
-		}
-
-		return $txs;
-	}
-
-	private function getNormalAddressTxs(string $address, int $page, int $pageSize): array
-	{
-		$data = $this->etherscanApiQuery([
-			'module'     => 'account',
-			'action'     => 'txlist',
-			'address'    => $address,
-			'page'       => $page,
-			'offset'     => $pageSize,
-			'startblock' => 0,
-			'endblock'   => 'latest',
-			'sort'       => 'desc',
-		]);
-
-		$txs = [];
-		foreach ($data as $tx) {
-			if (!empty($tx['functionName'])) {
-				continue;
-			}
-			$amount = Amount::satoshi($tx['value'], $this->getDecimals());
-
-			$txs[] = new Transaction(
-				$tx['hash'],
-				$tx['blockNumber'],
-				$tx['confirmations'],
-				$tx['timeStamp'],
-				[
-					new TxvInOut(
-						$tx['from'],
-						$amount,
-						$tx['transactionIndex'],
-					),
-				],
-				[
-					new TxvInOut(
-						$tx['to'],
-						$amount,
-						$tx['transactionIndex'],
-					),
-				],
-				"0",
-				$tx,
-				!$tx['isError']
-			);
-		}
-
-		return $txs;
 	}
 
 	/**
