@@ -23,6 +23,13 @@ class EthereumBlockbook extends BlockbookAbstract implements TokenAwareInterface
 	protected Client $rpc;
 	protected array $tokens;
 	protected string $cacheDir;
+	protected ?\Closure $nonceProvider = null;
+
+	public function setNonceProvider(\Closure $provider): static
+	{
+		$this->nonceProvider = $provider;
+		return $this;
+	}
 
 	public function __construct(
 		public RpcCredentials $credentials,
@@ -69,9 +76,14 @@ class EthereumBlockbook extends BlockbookAbstract implements TokenAwareInterface
 			$address = "0x" . $address;
 		}
 
-		$cnt = hexdec($this->jsonRpc('eth_getTransactionCount', [$address, 'pending']));
+		$networkNonce = hexdec($this->jsonRpc('eth_getTransactionCount', [$address, 'pending']));
 
-		return $cnt;
+		if ($this->nonceProvider) {
+			$externalNonce = (int) ($this->nonceProvider)($address);
+			return max($networkNonce, $externalNonce);
+		}
+
+		return $networkNonce;
 	}
 
 	public function getTokenInfo(string $address): ?TokenInfo
