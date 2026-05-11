@@ -1,5 +1,10 @@
 <?php
 
+/**
+ * Legacy-style gas price via eth_gasPrice (wei → gwei).
+ * For EIP-1559 fields (maxFeePerGas / maxPriorityFeePerGas) see eth-eip1559-fees.php.
+ */
+
 error_reporting(E_ALL ^ E_DEPRECATED);
 
 require_once __DIR__ . "/../vendor/autoload.php";

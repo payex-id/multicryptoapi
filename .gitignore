@@ -4,3 +4,4 @@ vendor/
 .DS_Store
 examples/.env
 .history/
+.cursor/plans/eip1559-fees.plan.md

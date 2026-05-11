@@ -9,7 +9,6 @@ use Chikiday\MultiCryptoApi\Blockchain\Fee;
 use Chikiday\MultiCryptoApi\Blockchain\RawTransaction;
 use kornrunner\Ethereum\EIP1559Transaction;
 use kornrunner\Ethereum\Token;
-use kornrunner\Ethereum\Transaction;
 
 readonly class EthereumTxBuilder
 {
@@ -24,11 +23,11 @@ readonly class EthereumTxBuilder
 		string $amount,
 		?Fee $fee = null,
 	): RawTransaction {
-		$gasPrice = $fee?->fee?->satoshi ?? $this->blockbook->getGasPrice();
+		['maxPriorityFeePerGas' => $maxPriorityFee, 'maxFeePerGas' => $maxFee] = $this->resolveEIP1559PerGas($fee);
 		$cnt = $this->blockbook->getTransactionCount($from->address);
 
 		$gasLimit = $fee?->gasLimit()?->satoshi ?? 21000;
-		$feeAmount = bcmul($gasPrice, $gasLimit);
+		$feeAmount = bcmul((string) $maxFee, (string) $gasLimit);
 		$amount = Amount::value($amount, 18)->satoshi;
 
 		if ($fee?->isSubtractFromAmount() ?? true) {
@@ -37,9 +36,9 @@ readonly class EthereumTxBuilder
 
 		$transaction = new EIP1559Transaction(
 			dechex($cnt),
-			dechex($gasPrice),
-			dechex($gasPrice),
-			dechex($gasLimit),
+			self::weiIntToHex($maxPriorityFee),
+			self::weiIntToHex($maxFee),
+			dechex((int) $gasLimit),
 			"0x" . $to,
 			'0x' . self::bcdechex($amount)
 		);
@@ -56,7 +55,7 @@ readonly class EthereumTxBuilder
 		int $decimals = 18,
 		?Fee $fee = null,
 	): RawTransaction {
-		$gasPrice = $fee?->fee?->satoshi ?? $this->blockbook->getGasPrice();
+		['maxPriorityFeePerGas' => $maxPriorityFee, 'maxFeePerGas' => $maxFee] = $this->resolveEIP1559PerGas($fee);
 		$cnt = $this->blockbook->getTransactionCount($from->address);
 
 		$gasLimit = $fee?->gasLimit()?->satoshi ?? 1000 * 1000;
@@ -73,16 +72,47 @@ readonly class EthereumTxBuilder
 
 		$transaction = new EIP1559Transaction(
 			dechex($cnt),
-			dechex($gasPrice),
-			dechex($gasPrice),
-			dechex($gasLimit),
+			self::weiIntToHex($maxPriorityFee),
+			self::weiIntToHex($maxFee),
+			dechex((int) $gasLimit),
 			$assetId,
 			'',
 			$data
 		);
 
 		$hex = $transaction->getRaw($from->privateKey, $this->blockbook->chainId);
-		return new RawTransaction("0x" . $hex, '', [], [], bcmul($gasPrice, $gasLimit));
+		return new RawTransaction("0x" . $hex, '', [], [], bcmul((string) $maxFee, (string) $gasLimit));
+	}
+
+	/**
+	 * @return array{maxPriorityFeePerGas: int, maxFeePerGas: int}
+	 */
+	private function resolveEIP1559PerGas(?Fee $fee): array
+	{
+		$fees = $this->blockbook->getEIP1559Fees();
+		$maxPriorityFee = $fee?->fee !== null
+			? (int) $fee->fee->satoshi
+			: $fees['maxPriorityFeePerGas'];
+		$maxFee = max(
+			$fees['maxFeePerGas'],
+			$maxPriorityFee + 2 * ($fees['baseFeePerGas'] ?? 0)
+		);
+
+		return [
+			'maxPriorityFeePerGas' => $maxPriorityFee,
+			'maxFeePerGas' => $maxFee,
+		];
+	}
+
+	private static function weiIntToHex(int $wei): string
+	{
+		if ($wei < 0) {
+			throw new \InvalidArgumentException('wei must be non-negative');
+		}
+		if ($wei <= PHP_INT_MAX) {
+			return dechex($wei);
+		}
+		return self::bcdechex((string) $wei);
 	}
 
 	public static function bchexdec(string $hex): string

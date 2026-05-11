@@ -60,6 +60,8 @@ TRONGRID_API_KEY=your_trongrid_api_key
 ```bash
 php examples/bitcoin-blockbook.php
 php examples/eth-blockbook.php
+php examples/eth-gasprice.php
+php examples/eth-eip1559-fees.php
 php examples/trx-blockbook.php
 ```
 
@@ -67,5 +69,6 @@ php examples/trx-blockbook.php
 
 - `keys.php` - файл для загрузки API-ключей из переменных окружения
 - `*-blockbook.php` - примеры работы с блокчейн данными
+- `eth-gasprice.php` / `eth-eip1559-fees.php` - оценка газа (legacy и EIP-1559)
 - `*-send-*.php` - примеры отправки транзакций
 - `*-stream.php` - примеры работы с потоками данных в реальном времени 

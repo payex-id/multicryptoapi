@@ -49,6 +49,137 @@ class EthereumBlockbook extends BlockbookAbstract implements TokenAwareInterface
 		return hexdec($data);
 	}
 
+	/**
+	 * EIP-1559 fee fields for transaction building (wei).
+	 * Uses eth_feeHistory when available; falls back to eth_gasPrice with a multiplier.
+	 *
+	 * Options (constructor $options):
+	 * - eip1559FeeHistoryBlocks (int, default 5): blocks for eth_feeHistory
+	 * - eip1559RewardPercentiles (float[], default [50, 75]): reward percentiles for fee history
+	 * - eip1559GasPriceFallbackMultiplier (float, default 1.2): used when eth_feeHistory fails
+	 *
+	 * @return array{maxPriorityFeePerGas: int, maxFeePerGas: int, baseFeePerGas: int}
+	 */
+	public function getEIP1559Fees(): array
+	{
+		try {
+			$blocks = (int) ($this->getOption('eip1559FeeHistoryBlocks') ?? 5);
+			$blocks = max(1, min(1024, $blocks));
+			$percentiles = $this->getOption('eip1559RewardPercentiles');
+			if (!is_array($percentiles) || $percentiles === []) {
+				$percentiles = [50, 75];
+			}
+			$percentiles = array_values(array_map(static fn($p) => (float) $p, $percentiles));
+
+			$result = $this->jsonRpc('eth_feeHistory', [
+				'0x' . dechex($blocks),
+				'latest',
+				$percentiles,
+			]);
+
+			if (!is_array($result) || empty($result['baseFeePerGas']) || !is_array($result['baseFeePerGas'])) {
+				throw new \RuntimeException('Invalid eth_feeHistory response');
+			}
+
+			$baseFeeHexes = $result['baseFeePerGas'];
+			$lastKey = array_key_last($baseFeeHexes);
+			$nextBaseFee = $this->hexQuantityToInt((string) $baseFeeHexes[$lastKey]);
+
+			$maxPriority = $this->priorityTipFromFeeHistoryReward($result['reward'] ?? null, count($percentiles));
+			if ($maxPriority <= 0) {
+				$maxPriority = $this->tryMaxPriorityFeePerGasFromRpc() ?? 2_000_000_000;
+			}
+
+			$maxFee = 2 * $nextBaseFee + $maxPriority;
+
+			return [
+				'maxPriorityFeePerGas' => $maxPriority,
+				'maxFeePerGas'         => $maxFee,
+				'baseFeePerGas'        => $nextBaseFee,
+			];
+		} catch (\Throwable $e) {
+			return $this->getEIP1559FeesFallback();
+		}
+	}
+
+	/**
+	 * @return array{maxPriorityFeePerGas: int, maxFeePerGas: int, baseFeePerGas: int}
+	 */
+	protected function getEIP1559FeesFallback(): array
+	{
+		$multiplier = (float) ($this->getOption('eip1559GasPriceFallbackMultiplier') ?? 1.2);
+		if ($multiplier < 1.0) {
+			$multiplier = 1.2;
+		}
+		$gasPrice = $this->getGasPrice();
+		$maxFee = (int) round($gasPrice * $multiplier);
+		$maxPriority = min((int) ($gasPrice / 10), 3_000_000_000);
+		$maxPriority = max($maxPriority, 1_000_000_000);
+		if ($maxFee <= $maxPriority) {
+			$maxFee = $maxPriority + (int) max(1, $gasPrice / 2);
+		}
+		$baseFallback = max(1, $gasPrice - $maxPriority);
+
+		return [
+			'maxPriorityFeePerGas' => $maxPriority,
+			'maxFeePerGas'         => $maxFee,
+			'baseFeePerGas'        => $baseFallback,
+		];
+	}
+
+	protected function tryMaxPriorityFeePerGasFromRpc(): ?int
+	{
+		try {
+			$data = $this->jsonRpc('eth_maxPriorityFeePerGas', []);
+			if ($data === null || $data === '') {
+				return null;
+			}
+			return $this->hexQuantityToInt((string) $data);
+		} catch (\Throwable $e) {
+			return null;
+		}
+	}
+
+	/**
+	 * Use the highest percentile column (last index): max tip across recent blocks.
+	 */
+	protected function priorityTipFromFeeHistoryReward(mixed $reward, int $percentileCount): int
+	{
+		if (!is_array($reward) || $reward === [] || $percentileCount < 1) {
+			return 0;
+		}
+		$idx = $percentileCount - 1;
+		$tips = [];
+		foreach ($reward as $blockRewards) {
+			if (!is_array($blockRewards) || !array_key_exists($idx, $blockRewards)) {
+				continue;
+			}
+			$cell = $blockRewards[$idx];
+			if ($cell === null || $cell === '') {
+				continue;
+			}
+			$tips[] = $this->hexQuantityToInt((string) $cell);
+		}
+		if ($tips === []) {
+			return 0;
+		}
+
+		return max($tips);
+	}
+
+	protected function hexQuantityToInt(string $hex): int
+	{
+		$hex = strtolower(trim($hex));
+		if (str_starts_with($hex, '0x')) {
+			$hex = substr($hex, 2);
+		}
+		if ($hex === '') {
+			return 0;
+		}
+
+		return (int) EthUtil::hexToDec($hex);
+	}
+
 	public function evmCall(
 		string $contractAddress,
 		string $method,

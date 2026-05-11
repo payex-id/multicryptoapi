@@ -164,6 +164,20 @@ $blockbook = new EthereumRpc($credentials, [
 ]);
 ```
 
+### Комиссии EIP-1559 (`EthereumBlockbook` / `EthereumRpc`)
+
+`EthereumTxBuilder` берёт **`getEIP1559Fees()`** для `maxPriorityFeePerGas` и `maxFeePerGas` (через `eth_feeHistory`; если нода не поддерживает — fallback на **`eth_gasPrice`** с множителем).
+
+Опциональные ключи в массиве опций конструктора (так же для `EthereumBlockbook`):
+
+- `eip1559FeeHistoryBlocks` (int, по умолчанию `5`) — число блоков для `eth_feeHistory`
+- `eip1559RewardPercentiles` (float[], по умолчанию `[50, 75]`) — перцентили награды в fee history
+- `eip1559GasPriceFallbackMultiplier` (float, по умолчанию `1.2`) — множитель к `eth_gasPrice`, если fee history недоступен (часть L2 / старые ноды)
+
+Возвращаемый массив (wei, `int`): `maxPriorityFeePerGas`, `maxFeePerGas`, `baseFeePerGas`.
+
+Пример: `examples/eth-eip1559-fees.php`.
+
 ### Fallback механизм
 
 Библиотека автоматически переключается между источниками данных:
@@ -177,6 +191,7 @@ $blockbook = new EthereumRpc($credentials, [
 Полный набор примеров находится в директории `examples/`:
 
 - `*-blockbook.php` - работа с блокчейн данными
+- `eth-gasprice.php`, `eth-eip1559-fees.php` - цена газа (legacy и EIP-1559)
 - `*-send-*.php` - отправка транзакций
 - `*-stream.php` - потоковая обработка
 - `*-wallet.php` - работа с кошельками

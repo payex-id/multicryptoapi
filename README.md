@@ -163,6 +163,20 @@ $blockbook = new EthereumRpc($credentials, [
 ]);
 ```
 
+### EIP-1559 fees (`EthereumBlockbook` / `EthereumRpc`)
+
+`EthereumTxBuilder` uses **`getEIP1559Fees()`** for `maxPriorityFeePerGas` and `maxFeePerGas` (via `eth_feeHistory`; if the node does not support it, falls back to **`eth_gasPrice`** with a multiplier).
+
+Optional constructor options (same `$options` array as above, also on `EthereumBlockbook`):
+
+- `eip1559FeeHistoryBlocks` (int, default `5`) — block count for `eth_feeHistory`
+- `eip1559RewardPercentiles` (float[], default `[50, 75]`) — reward percentiles for fee history
+- `eip1559GasPriceFallbackMultiplier` (float, default `1.2`) — applied to `eth_gasPrice` when fee history is unavailable (some L2s / older nodes)
+
+Returned array keys (wei, `int`): `maxPriorityFeePerGas`, `maxFeePerGas`, `baseFeePerGas`.
+
+See `examples/eth-eip1559-fees.php`.
+
 ### Fallback Mechanism
 
 The library automatically switches between data sources:
@@ -176,6 +190,7 @@ The library automatically switches between data sources:
 A complete set of examples is located in the `examples/` directory:
 
 - `*-blockbook.php` - working with blockchain data
+- `eth-gasprice.php`, `eth-eip1559-fees.php` - gas price (legacy and EIP-1559)
 - `*-send-*.php` - sending transactions
 - `*-stream.php` - stream processing
 - `*-wallet.php` - wallet operations
