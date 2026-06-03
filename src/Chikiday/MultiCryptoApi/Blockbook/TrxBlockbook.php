@@ -137,39 +137,117 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 	public function resolveTx(mixed $data): Transaction
 	{
 		$contractType = $data['contract_type'] ?? null;
+		$tokenTransfers = $data['tokenTransfers'] ?? [];
+		$firstTransfer = $tokenTransfers[0] ?? null;
 
-		if (isset($data['tokenTransfers']) && in_array($contractType, [2, 31], true)) {
-			$_address = $data['tokenTransfers'][0]['to'];
-		} else {
-			$_address = $data['toAddress'];
-		}
+		$fromAddress = $this->resolveTrxFromAddress($data, $firstTransfer);
+		$toAddress = $this->resolveTrxToAddress($data, $firstTransfer, $contractType);
+		$value = $this->resolveTrxValue($data, $firstTransfer, $contractType);
 
-		$value = $data['value'];
-		if (in_array($contractType, [57, 58], true)) {
-			$value = "0";
-		}
-
-		$_assets = $this->resolveAssets($data['tokenTransfers'] ?? []);
+		$_assets = $this->resolveAssets($tokenTransfers);
+		$valueAmount = Amount::satoshi($value, $this->getDecimals());
 		$vIn = [
-			new TxvInOut($data['fromAddress'], $value = Amount::satoshi($value, $this->getDecimals()), 0, $_assets),
+			new TxvInOut($fromAddress, $valueAmount, 0, $_assets),
 		];
 
 		$vOut = [
-			new TxvInOut($_address, $value, 0, $_assets),
+			new TxvInOut($toAddress, $valueAmount, 0, $_assets),
 		];
 
 		$height = empty($data['blockHeight']) ? null : (int) $data['blockHeight'];
+
 		return new Transaction(
-			// replace 0x in the beginning
 			str_replace('0x', '', $data['txid']),
 			$height,
 			$data['confirmations'],
 			$data['blockTime'],
 			$vIn,
 			$vOut,
-			Amount::satoshi($value, $this->getDecimals()),
+			$valueAmount,
 			$data,
+			$this->resolveTrxIsSuccess($data),
 		);
+	}
+
+	/**
+	 * Blockbook TRX txs use vin/vout and tokenTransfers; legacy fields toAddress/fromAddress are often absent.
+	 */
+	private function resolveTrxFromAddress(array $data, ?array $firstTransfer): string
+	{
+		return $data['fromAddress']
+			?? $firstTransfer['from']
+			?? $this->resolveVinAddress($data)
+			?? '';
+	}
+
+	private function resolveTrxToAddress(array $data, ?array $firstTransfer, mixed $contractType): string
+	{
+		if ($firstTransfer !== null) {
+			return (string) ($firstTransfer['to'] ?? '');
+		}
+
+		if (isset($data['toAddress'])) {
+			return (string) $data['toAddress'];
+		}
+
+		if (in_array($contractType, [2, 31], true) && !empty($data['tokenTransfers'][0]['to'])) {
+			return (string) $data['tokenTransfers'][0]['to'];
+		}
+
+		return $this->resolveVoutRecipientAddress($data) ?? '';
+	}
+
+	private function resolveTrxValue(array $data, ?array $firstTransfer, mixed $contractType): string
+	{
+		if (in_array($contractType, [57, 58], true)) {
+			return '0';
+		}
+
+		if ($firstTransfer !== null && (string) ($data['value'] ?? '0') === '0') {
+			return (string) ($firstTransfer['value'] ?? '0');
+		}
+
+		return (string) ($data['value'] ?? '0');
+	}
+
+	private function resolveVinAddress(array $data): ?string
+	{
+		return $data['vin'][0]['addresses'][0] ?? null;
+	}
+
+	/**
+	 * Prefer a vout with non-zero value (native TRX); otherwise last vout (e.g. USDT contract call).
+	 */
+	private function resolveVoutRecipientAddress(array $data): ?string
+	{
+		foreach ($data['vout'] ?? [] as $vout) {
+			if (!empty($vout['addresses'][0]) && (int) ($vout['value'] ?? 0) > 0) {
+				return $vout['addresses'][0];
+			}
+		}
+
+		$vouts = $data['vout'] ?? [];
+		if ($vouts === []) {
+			return null;
+		}
+
+		$last = $vouts[array_key_last($vouts)];
+
+		return $last['addresses'][0] ?? null;
+	}
+
+	private function resolveTrxIsSuccess(array $data): ?bool
+	{
+		if (isset($data['tronTXReceipt']['status'])) {
+			return (int) $data['tronTXReceipt']['status'] > 0;
+		}
+
+		$result = $data['chainExtraData']['payload']['result'] ?? null;
+		if ($result !== null) {
+			return strtoupper((string) $result) === 'SUCCESS';
+		}
+
+		return null;
 	}
 
 	public function getToken(string $id): ?array
