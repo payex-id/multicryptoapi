@@ -238,16 +238,7 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 
 	private function resolveTrxIsSuccess(array $data): ?bool
 	{
-		if (isset($data['tronTXReceipt']['status'])) {
-			return (int) $data['tronTXReceipt']['status'] > 0;
-		}
-
-		$result = $data['chainExtraData']['payload']['result'] ?? null;
-		if ($result !== null) {
-			return strtoupper((string) $result) === 'SUCCESS';
-		}
-
-		return null;
+		return Transaction::resolveTronIsSuccess($data);
 	}
 
 	public function getToken(string $id): ?array

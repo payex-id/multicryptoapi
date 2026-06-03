@@ -41,6 +41,10 @@ readonly class Transaction
 			return $isSuccess;
 		}
 
+		if (self::isTronBlockbookPayload($originData)) {
+			return self::resolveTronIsSuccess($originData);
+		}
+
 		if (array_key_exists('tronTXReceipt', $originData)) {
 			$status = $originData['tronTXReceipt']['status'] ?? null;
 
@@ -62,6 +66,36 @@ readonly class Transaction
 	}
 
 	/**
+	 * TRON txs from Blockbook: never use ethereumSpecific.status (-1/0 are unreliable on TransferContract).
+	 */
+	public static function isTronBlockbookPayload(array $originData): bool
+	{
+		return ($originData['chainExtraData']['payloadType'] ?? null) === 'tron';
+	}
+
+	public static function resolveTronIsSuccess(array $originData): bool
+	{
+		if (array_key_exists('tronTXReceipt', $originData)) {
+			$status = $originData['tronTXReceipt']['status'] ?? null;
+
+			return $status === null || (int) $status > 0;
+		}
+
+		$chainResult = $originData['chainExtraData']['payload']['result'] ?? null;
+		if ($chainResult !== null && $chainResult !== '') {
+			return strtoupper((string) $chainResult) === 'SUCCESS';
+		}
+
+		// TransferContract and similar: no result field, but tx is mined — treat as success.
+		$blockHeight = $originData['blockHeight'] ?? null;
+		if ($blockHeight !== null && $blockHeight !== '' && (int) $blockHeight > 0) {
+			return true;
+		}
+
+		return true;
+	}
+
+	/**
 	 * Debug context for logs when isSuccess is false (which Blockbook fields were used).
 	 *
 	 * @return array<string, mixed>
@@ -72,6 +106,21 @@ readonly class Transaction
 			return [
 				'source'     => 'explicit',
 				'is_success' => $isSuccess,
+			];
+		}
+
+		if (self::isTronBlockbookPayload($originData)) {
+			$chainResult = $originData['chainExtraData']['payload']['result'] ?? null;
+			$resolved = self::resolveTronIsSuccess($originData);
+
+			return [
+				'source'             => $chainResult !== null && $chainResult !== ''
+					? 'chainExtraData.result'
+					: (!empty($originData['blockHeight']) ? 'tron_mined_no_result' : 'tron_default'),
+				'is_success'         => $resolved,
+				'chain_extra_result' => $chainResult,
+				'block_height'       => $originData['blockHeight'] ?? null,
+				'ethereum_specific_ignored' => $originData['ethereumSpecific'] ?? null,
 			];
 		}
 
