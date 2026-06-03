@@ -136,14 +136,16 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 
 	public function resolveTx(mixed $data): Transaction
 	{
-		if (isset($data['tokenTransfers']) && in_array($data['contract_type'], [2, 31])) {
+		$contractType = $data['contract_type'] ?? null;
+
+		if (isset($data['tokenTransfers']) && in_array($contractType, [2, 31], true)) {
 			$_address = $data['tokenTransfers'][0]['to'];
 		} else {
 			$_address = $data['toAddress'];
 		}
 
 		$value = $data['value'];
-		if (in_array($data['contract_type'], [57, 58])) {
+		if (in_array($contractType, [57, 58], true)) {
 			$value = "0";
 		}
 
