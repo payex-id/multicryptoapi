@@ -339,7 +339,12 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 	public function isAddressActive(string|BlockchainAddress $address): bool
 	{
 		if ($address instanceof BlockchainAddress) {
-			return $address->originData['details']['isActive'];
+			$isActive = $address->originData['details']['isActive'] ?? null;
+			if ($isActive !== null) {
+				return (bool) $isActive;
+			}
+
+			return $this->isAddressActiveByApi($address->address);
 		}
 
 		return $this->isAddressActiveByApi($address);
