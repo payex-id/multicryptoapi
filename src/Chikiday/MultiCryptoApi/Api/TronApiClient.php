@@ -307,6 +307,17 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 		];
 	}
 
+	public function getMaxDelegatableBalance(string $address, string $type): int
+	{
+		$response = $this->blockbook->requestTron('/wallet/getcandelegatedmaxsize', [
+			'owner_address' => $address,
+			'type'          => strtoupper($type) === 'ENERGY' ? 1 : 0,
+			'visible'       => true,
+		]);
+
+		return (int) ($response['max_size'] ?? 0);
+	}
+
 	public function activateAddress(
 		AddressCredentials $from,
 		string             $address,

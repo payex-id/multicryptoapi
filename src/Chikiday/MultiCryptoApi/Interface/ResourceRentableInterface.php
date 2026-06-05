@@ -22,4 +22,9 @@ interface ResourceRentableInterface
 	): Transaction;
 
 	public function getResourcePrices(string $address): array;
+
+	/**
+	 * Max TRX amount (in sun) the address can still delegate for the given resource type.
+	 */
+	public function getMaxDelegatableBalance(string $address, string $type): int;
 }
