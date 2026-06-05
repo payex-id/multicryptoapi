@@ -241,6 +241,7 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 
 	public function resolveTx(mixed $data): Transaction
 	{
+		$data = $this->normalizeTrxBlockbookTxData($data);
 		$contractType = $data['contract_type'] ?? null;
 		$tokenTransfers = $data['tokenTransfers'] ?? [];
 		$firstTransfer = $tokenTransfers[0] ?? null;
@@ -272,6 +273,42 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 			$data,
 			$this->resolveTrxIsSuccess($data),
 		);
+	}
+
+	/**
+	 * Blockbook TRX tx API migrated contract/delegate fields into chainExtraData.payload.
+	 */
+	private function normalizeTrxBlockbookTxData(array $data): array
+	{
+		$payload = $data['chainExtraData']['payload'] ?? null;
+		if ($payload === null) {
+			return $data;
+		}
+
+		if (!isset($data['contract_name']) && !empty($payload['contractType'])) {
+			$data['contract_name'] = $payload['contractType'];
+		}
+
+		$contractType = $payload['contractType'] ?? null;
+		$resourceType = strtoupper((string) ($payload['resource'] ?? 'BANDWIDTH'));
+
+		if ($contractType === 'DelegateResourceContract' && !isset($data['delegateInfo'])) {
+			$data['delegateInfo'] = [
+				'delegateTo' => $payload['delegateTo'] ?? '',
+				'type'       => $resourceType,
+				'amount'     => (string) ($payload['delegateAmount'] ?? '0'),
+			];
+		}
+
+		if ($contractType === 'UnDelegateResourceContract' && !isset($data['undelegateInfo'])) {
+			$data['undelegateInfo'] = [
+				'prevDelegate' => $payload['delegateTo'] ?? '',
+				'type'           => $resourceType,
+				'amount'         => (string) ($payload['delegateAmount'] ?? '0'),
+			];
+		}
+
+		return $data;
 	}
 
 	/**

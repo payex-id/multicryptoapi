@@ -63,7 +63,9 @@ php examples/eth-blockbook.php
 php examples/eth-gasprice.php
 php examples/eth-eip1559-fees.php
 php examples/trx-blockbook.php
-php examples/trx-energy-info.php TTJf8VKkcJHmKJ5tPxCH9JYUc4F5LnMfMh
+php examples/trx-energy-info.php <address>
+php examples/trx-blockbook-healthcheck.php <address> [<creditor_address>]
+php examples/trx-reclaim-info.php <creditor_address> <invoice_address>
 ```
 
 ## Структура файлов

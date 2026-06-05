@@ -27,7 +27,9 @@ readonly class Transaction
 	)
 	{
 		$this->isSuccess = self::resolveIsSuccess($this->originData, $isSuccess);
-		$this->type = $this->originData['contract_name'] ?? 'tx';
+		$this->type = $this->originData['contract_name']
+			?? $this->originData['chainExtraData']['payload']['contractType']
+			?? 'tx';
 	}
 
 	/**
