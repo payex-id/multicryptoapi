@@ -12,8 +12,7 @@ use Chikiday\MultiCryptoApi\Blockchain\TxvInOut;
 use Chikiday\MultiCryptoApi\Interface\TokenAwareInterface;
 use Chikiday\MultiCryptoApi\Interface\UnconfirmedBalanceFeatureInterface;
 use Chikiday\MultiCryptoApi\Model\TokenInfo;
-use Chikiday\MultiCryptoApi\Util\TronGridRateLimit;
-use IEXBase\TronAPI\Provider\HttpProvider;
+use Chikiday\MultiCryptoApi\Provider\TronGridHttpProvider;
 use IEXBase\TronAPI\Tron;
 use Override;
 use RuntimeException;
@@ -34,7 +33,7 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 		int                               $httpTimeout = 10,
 	)
 	{
-		$http = new HttpProvider(
+		$http = new TronGridHttpProvider(
 			"https://api.trongrid.io",
 			$httpTimeout,
 			false,
@@ -53,25 +52,9 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 		return $this;
 	}
 
-	/**
-	 * TronGrid wallet API with automatic wait-and-retry on frequency limit (429).
-	 */
 	public function requestTron(string $uri, array $payload = [], int $maxAttempts = 10): array
 	{
-		$attempt = 0;
-
-		while (true) {
-			try {
-				return $this->tron->getManager()->request($uri, $payload);
-			} catch (\Throwable $e) {
-				$attempt++;
-				if (!TronGridRateLimit::isRateLimited($e) || $attempt >= $maxAttempts) {
-					throw $e;
-				}
-
-				TronGridRateLimit::wait($e);
-			}
-		}
+		return $this->tron->getManager()->request($uri, $payload);
 	}
 
 	public function getTokenInfo(string $address): ?TokenInfo

@@ -2,7 +2,7 @@
 
 namespace Chikiday\MultiCryptoApi\Util;
 
-use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Exception\RequestException;
 
 class TronGridRateLimit
 {
@@ -15,7 +15,7 @@ class TronGridRateLimit
 	 */
 	public static function isRateLimited(\Throwable $e): bool
 	{
-		if ($e instanceof ClientException && $e->getResponse()?->getStatusCode() === 429) {
+		if ($e instanceof RequestException && $e->hasResponse() && $e->getResponse()->getStatusCode() === 429) {
 			return true;
 		}
 
@@ -24,6 +24,29 @@ class TronGridRateLimit
 		return str_contains($message, '429 Too Many Requests')
 			|| str_contains($message, 'frequency limit')
 			|| str_contains($message, 'exceeds the frequency limit');
+	}
+
+	/**
+	 * @template T
+	 * @param callable(): T $fn
+	 * @return T
+	 */
+	public static function retry(callable $fn, int $maxAttempts = 10): mixed
+	{
+		$attempt = 0;
+
+		while (true) {
+			try {
+				return $fn();
+			} catch (\Throwable $e) {
+				$attempt++;
+				if (!self::isRateLimited($e) || $attempt >= $maxAttempts) {
+					throw $e;
+				}
+
+				self::wait($e);
+			}
+		}
 	}
 
 	/**
@@ -52,8 +75,8 @@ class TronGridRateLimit
 	{
 		$texts = [self::collectMessage($e)];
 
-		if ($e instanceof ClientException) {
-			$texts[] = (string) $e->getResponse()?->getBody();
+		if ($e instanceof RequestException && $e->hasResponse()) {
+			$texts[] = (string) $e->getResponse()->getBody();
 		}
 
 		return array_values(array_filter($texts));
