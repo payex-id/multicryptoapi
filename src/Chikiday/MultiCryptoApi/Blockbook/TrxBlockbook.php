@@ -69,6 +69,111 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 		);
 	}
 
+	#[Override] public function getAddress(string $address, bool $loadAssets = false): Address
+	{
+		$result = parent::getAddress($address, $loadAssets);
+		$originData = $result->originData;
+		$originData['details'] = $this->normalizeAddressDetails($originData);
+
+		return new Address(
+			$result->address,
+			$result->balance,
+			$result->assets,
+			$originData,
+		);
+	}
+
+	/**
+	 * Blockbook TRX address API migrated from details.* to chainExtraData.payload.*.
+	 * Normalize both formats into legacy details keys used by PayEx consolidator.
+	 */
+	private function normalizeAddressDetails(array $data): array
+	{
+		$details = $data['details'] ?? [];
+		if (isset($details['energyTotal'], $details['energyUsed'])) {
+			return $details;
+		}
+
+		$payload = $data['chainExtraData']['payload'] ?? null;
+		if ($payload === null) {
+			return $details;
+		}
+
+		$energyTotal = (int) ($payload['totalEnergy'] ?? 0);
+		$energyAvailable = (int) ($payload['availableEnergy'] ?? 0);
+		$bandwidthTotal = (int) ($payload['totalStakedBandwidth'] ?? 0) + (int) ($payload['totalFreeBandwidth'] ?? 0);
+		$bandwidthAvailable = (int) ($payload['availableStakedBandwidth'] ?? 0) + (int) ($payload['availableFreeBandwidth'] ?? 0);
+		$stakingInfo = $payload['stakingInfo'] ?? [];
+
+		$normalized = [
+			'energyTotal'    => $energyTotal,
+			'energyUsed'     => max(0, $energyTotal - $energyAvailable),
+			'bandwidthTotal' => $bandwidthTotal,
+			'bandwidthUsed'  => max(0, $bandwidthTotal - $bandwidthAvailable),
+			'isActive'       => ($data['txs'] ?? 0) > 0 || (int) ($data['balance'] ?? 0) > 0,
+			'frozenListV2'   => $details['frozenListV2'] ?? [],
+		];
+
+		if ($normalized['frozenListV2'] === [] && $this->hasOutgoingDelegations($stakingInfo)) {
+			$normalized['frozenListV2'] = $this->loadOutgoingDelegations($data['address']);
+		}
+
+		return $normalized;
+	}
+
+	private function hasOutgoingDelegations(array $stakingInfo): bool
+	{
+		return (int) ($stakingInfo['delegatedBalanceEnergy'] ?? 0) > 0
+			|| (int) ($stakingInfo['delegatedBalanceBandwidth'] ?? 0) > 0;
+	}
+
+	/**
+	 * @return array<int, array{type: string, amount: int, delegateTo: string}>
+	 */
+	private function loadOutgoingDelegations(string $address): array
+	{
+		try {
+			$index = $this->tron->getManager()->request('/wallet/getdelegatedresourceaccountindexv2', [
+				'value'   => $address,
+				'visible' => true,
+			]);
+		} catch (\Throwable) {
+			return [];
+		}
+
+		$result = [];
+		foreach ($index['toAccounts'] ?? [] as $toAddress) {
+			try {
+				$delegated = $this->tron->getManager()->request('/wallet/getdelegatedresourcev2', [
+					'fromAddress' => $address,
+					'toAddress'   => $toAddress,
+					'visible'     => true,
+				]);
+			} catch (\Throwable) {
+				continue;
+			}
+
+			foreach ($delegated['delegatedResource'] ?? [] as $item) {
+				if (!empty($item['frozen_balance_for_energy'])) {
+					$result[] = [
+						'type'       => 'ENERGY',
+						'amount'     => (int) $item['frozen_balance_for_energy'],
+						'delegateTo' => $toAddress,
+					];
+				}
+				if (!empty($item['frozen_balance_for_bandwidth'])) {
+					$result[] = [
+						'type'       => 'BANDWIDTH',
+						'amount'     => (int) $item['frozen_balance_for_bandwidth'],
+						'delegateTo' => $toAddress,
+					];
+				}
+			}
+		}
+
+		return $result;
+	}
+
 	#[Override] public function getAssets(string $address): array
 	{
 		// nownodes blockbook returns only trc10 tokens - this is because we use tronscan api instead
