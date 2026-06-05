@@ -87,7 +87,7 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 		$tron->setPrivateKey($from->privateKey);
 
 		// Получаем детальную информацию об аккаунте отправителя
-		$accountInfo = $tron->getManager()->request('/wallet/getaccount', [
+		$accountInfo = $this->blockbook->requestTron('/wallet/getaccount', [
 			'address' => $from->address,
 			'visible' => true,
 		]);
@@ -106,7 +106,7 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 		$actualAvailableBalance = $availableBalance - $frozenBalance;
 
 		// Проверяем ресурсы аккаунта
-		$resources = $tron->getManager()->request('/wallet/getaccountresource', [
+		$resources = $this->blockbook->requestTron('/wallet/getaccountresource', [
 			'address' => $from->address,
 			'visible' => true,
 		]);
@@ -122,7 +122,7 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 		// Проверяем активность адреса получателя
 		$activationFee = 0;
 		try {
-			$recipientInfo = $tron->getManager()->request('/wallet/getaccount', [
+			$recipientInfo = $this->blockbook->requestTron('/wallet/getaccount', [
 				'address' => $addressTo,
 				'visible' => true,
 			]);
@@ -238,7 +238,7 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 		$tron->setPrivateKey($from->privateKey);
 
 		try {
-			$unsignedTx = $tron->getManager()->request('/wallet/delegateresource', [
+			$unsignedTx = $this->blockbook->requestTron('/wallet/delegateresource', [
 				'owner_address'    => $from->address,
 				'receiver_address' => $addressTo,
 				'balance'          => $tron->toTron($amount),
@@ -272,7 +272,7 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 		$tron->setPrivateKey($from->privateKey);
 
 		try {
-			$unsignedTx = $this->blockbook->tron->getManager()->request('/wallet/undelegateresource', [
+			$unsignedTx = $this->blockbook->requestTron('/wallet/undelegateresource', [
 				'owner_address'    => $from->address,
 				'receiver_address' => $addressTo,
 				'balance'          => $amount,
@@ -296,7 +296,7 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 
 	public function getResourcePrices(string $address): array
 	{
-		$response = $this->blockbook->tron->getManager()->request("/wallet/getaccountresource", [
+		$response = $this->blockbook->requestTron('/wallet/getaccountresource', [
 			'address' => $address,
 			'visible' => true,
 		]);
@@ -316,7 +316,7 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 		$tron->setPrivateKey($from->privateKey);
 
 		try {
-			$unsignedTx = $this->blockbook->tron->getManager()->request('/wallet/createaccount', [
+			$unsignedTx = $this->blockbook->requestTron('/wallet/createaccount', [
 				'owner_address'   => $from->address,
 				'account_address' => $address,
 				'visible'         => true,
@@ -366,7 +366,7 @@ class TronApiClient implements ApiClientInterface, ResourceRentableInterface, Ad
 	private function isAddressActiveByApi(string $address): bool
 	{
 		try {
-			$accountInfo = $this->blockbook->tron->getManager()->request('/wallet/getaccount', [
+			$accountInfo = $this->blockbook->requestTron('/wallet/getaccount', [
 				'address' => $address,
 				'visible' => true,
 			]);

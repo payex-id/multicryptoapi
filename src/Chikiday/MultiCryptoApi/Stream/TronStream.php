@@ -82,7 +82,7 @@ class TronStream extends AbstractStream
 			$params['id_or_num'] = (string)$blockNumber;
 		}
 
-		return $this->blockbook->tron->getManager()->request('/wallet/getblock', $params);
+		return $this->blockbook->requestTron('/wallet/getblock', $params);
 	}
 
 	/**
@@ -156,7 +156,7 @@ class TronStream extends AbstractStream
 	private function resolveTxs(array $lastBlock): array
 	{
 		$txs = array_column($lastBlock['transactions'] ?? [], null, 'txID');
-		$logsLoader = fn() => $this->blockbook->tron->getManager()->request(
+		$logsLoader = fn() => $this->blockbook->requestTron(
 			'/wallet/gettransactioninfobyblocknum',
 			['num' => $lastBlock['block_header']['raw_data']['number']]
 		);

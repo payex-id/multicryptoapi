@@ -12,6 +12,7 @@ use Chikiday\MultiCryptoApi\Blockchain\TxvInOut;
 use Chikiday\MultiCryptoApi\Interface\TokenAwareInterface;
 use Chikiday\MultiCryptoApi\Interface\UnconfirmedBalanceFeatureInterface;
 use Chikiday\MultiCryptoApi\Model\TokenInfo;
+use Chikiday\MultiCryptoApi\Util\TronGridRateLimit;
 use IEXBase\TronAPI\Provider\HttpProvider;
 use IEXBase\TronAPI\Tron;
 use Override;
@@ -50,6 +51,27 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 	{
 		$this->cacheDir = $path;
 		return $this;
+	}
+
+	/**
+	 * TronGrid wallet API with automatic wait-and-retry on frequency limit (429).
+	 */
+	public function requestTron(string $uri, array $payload = [], int $maxAttempts = 10): array
+	{
+		$attempt = 0;
+
+		while (true) {
+			try {
+				return $this->tron->getManager()->request($uri, $payload);
+			} catch (\Throwable $e) {
+				$attempt++;
+				if (!TronGridRateLimit::isRateLimited($e) || $attempt >= $maxAttempts) {
+					throw $e;
+				}
+
+				TronGridRateLimit::wait($e);
+			}
+		}
 	}
 
 	public function getTokenInfo(string $address): ?TokenInfo
@@ -133,7 +155,7 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 	private function loadOutgoingDelegations(string $address): array
 	{
 		try {
-			$index = $this->tron->getManager()->request('/wallet/getdelegatedresourceaccountindexv2', [
+			$index = $this->requestTron('/wallet/getdelegatedresourceaccountindexv2', [
 				'value'   => $address,
 				'visible' => true,
 			]);
@@ -144,7 +166,7 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 		$result = [];
 		foreach ($index['toAccounts'] ?? [] as $toAddress) {
 			try {
-				$delegated = $this->tron->getManager()->request('/wallet/getdelegatedresourcev2', [
+				$delegated = $this->requestTron('/wallet/getdelegatedresourcev2', [
 					'fromAddress' => $address,
 					'toAddress'   => $toAddress,
 					'visible'     => true,
