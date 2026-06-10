@@ -118,7 +118,6 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 			'energyUsed'     => max(0, $energyTotal - $energyAvailable),
 			'bandwidthTotal' => $bandwidthTotal,
 			'bandwidthUsed'  => max(0, $bandwidthTotal - $bandwidthAvailable),
-			'isActive'       => ($data['txs'] ?? 0) > 0 || (int) ($data['balance'] ?? 0) > 0,
 			'frozenListV2'   => $details['frozenListV2'] ?? [],
 		];
 
