@@ -27,6 +27,9 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 	private string $cacheDir = '/tmp';
 	private array $tokens;
 
+	/** @var array<string, array<int, array{type: string, amount: int, delegateTo: string}>> */
+	private array $frozenListV2Cache = [];
+
 	public function __construct(
 		protected RpcCredentials $credentials,
 		protected string         $tronGridApiKey = '',
@@ -120,7 +123,8 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 		];
 
 		if ($normalized['frozenListV2'] === [] && $this->hasOutgoingDelegations($stakingInfo)) {
-			$normalized['frozenListV2'] = $this->loadOutgoingDelegations($data['address']);
+			$normalized['frozenListV2'] = $this->frozenListV2Cache[$data['address']]
+				??= $this->buildFrozenListV2FromBlockbookTxs($data['address'], $stakingInfo);
 		}
 
 		return $normalized;
@@ -133,50 +137,159 @@ class TrxBlockbook extends BlockbookAbstract implements UnconfirmedBalanceFeatur
 	}
 
 	/**
+	 * Reconstruct active outgoing delegations from Blockbook tx history (no TronGrid).
+	 *
 	 * @return array<int, array{type: string, amount: int, delegateTo: string}>
 	 */
-	private function loadOutgoingDelegations(string $address): array
+	private function buildFrozenListV2FromBlockbookTxs(string $address, array $stakingInfo): array
 	{
 		try {
-			$index = $this->requestTron('/wallet/getdelegatedresourceaccountindexv2', [
-				'value'   => $address,
-				'visible' => true,
-			]);
+			$txs = $this->collectDelegationTxs($address, $stakingInfo);
 		} catch (\Throwable) {
 			return [];
 		}
 
-		$result = [];
-		foreach ($index['toAccounts'] ?? [] as $toAddress) {
-			try {
-				$delegated = $this->requestTron('/wallet/getdelegatedresourcev2', [
-					'fromAddress' => $address,
-					'toAddress'   => $toAddress,
-					'visible'     => true,
-				]);
-			} catch (\Throwable) {
+		if ($txs === []) {
+			return [];
+		}
+
+		return $this->netDelegationsToFrozenList($this->computeDelegationNet($txs, $address));
+	}
+
+	/**
+	 * @param Transaction[] $txs
+	 * @return array<string, int>
+	 */
+	private function computeDelegationNet(array $txs, string $address): array
+	{
+		usort($txs, static fn(Transaction $a, Transaction $b) => $a->time <=> $b->time);
+
+		$net = [];
+		foreach ($txs as $tx) {
+			if (!$tx->isSuccess || !$this->isCreditorDelegationTx($tx, $address)) {
 				continue;
 			}
 
-			foreach ($delegated['delegatedResource'] ?? [] as $item) {
-				if (!empty($item['frozen_balance_for_energy'])) {
-					$result[] = [
-						'type'       => 'ENERGY',
-						'amount'     => (int) $item['frozen_balance_for_energy'],
-						'delegateTo' => $toAddress,
-					];
+			if ($tx->type === 'DelegateResourceContract') {
+				$info = $tx->originData['delegateInfo'] ?? null;
+				if (!$info || empty($info['delegateTo'])) {
+					continue;
 				}
-				if (!empty($item['frozen_balance_for_bandwidth'])) {
-					$result[] = [
-						'type'       => 'BANDWIDTH',
-						'amount'     => (int) $item['frozen_balance_for_bandwidth'],
-						'delegateTo' => $toAddress,
-					];
+
+				$key = $this->delegationKey($info['delegateTo'], (string) ($info['type'] ?? 'ENERGY'));
+				$net[$key] = ($net[$key] ?? 0) + (int) $info['amount'];
+				continue;
+			}
+
+			if ($tx->type === 'UnDelegateResourceContract') {
+				$info = $tx->originData['undelegateInfo'] ?? null;
+				if (!$info || empty($info['prevDelegate'])) {
+					continue;
 				}
+
+				$key = $this->delegationKey($info['prevDelegate'], (string) ($info['type'] ?? 'ENERGY'));
+				$net[$key] = max(0, ($net[$key] ?? 0) - (int) $info['amount']);
+			}
+		}
+
+		return $net;
+	}
+
+	/**
+	 * @param array<string, int> $net
+	 * @return array<int, array{type: string, amount: int, delegateTo: string}>
+	 */
+	private function netDelegationsToFrozenList(array $net): array
+	{
+		$result = [];
+		foreach ($net as $key => $amount) {
+			if ($amount <= 0) {
+				continue;
+			}
+
+			[$delegateTo, $type] = explode('|', $key, 2);
+			$result[] = [
+				'type'       => $type,
+				'amount'     => $amount,
+				'delegateTo' => $delegateTo,
+			];
+		}
+
+		return $result;
+	}
+
+	/**
+	 * @return Transaction[]
+	 */
+	private function collectDelegationTxs(string $address, array $stakingInfo): array
+	{
+		$result = [];
+		$pageSize = 200;
+		$maxPages = 100;
+
+		for ($page = 1; $page <= $maxPages; $page++) {
+			try {
+				$list = $this->getAddressTransactions($address, $page, $pageSize);
+			} catch (\Throwable) {
+				break;
+			}
+
+			foreach ($list->transactions as $tx) {
+				if ($tx->type === 'DelegateResourceContract' || $tx->type === 'UnDelegateResourceContract') {
+					$result[] = $tx;
+				}
+			}
+
+			if ($this->delegationTotalsMatch($result, $address, $stakingInfo)) {
+				break;
+			}
+
+			if ($page >= $list->totalPages) {
+				break;
 			}
 		}
 
 		return $result;
+	}
+
+	/**
+	 * @param Transaction[] $txs
+	 */
+	private function delegationTotalsMatch(array $txs, string $address, array $stakingInfo): bool
+	{
+		$targetEnergy = (int) ($stakingInfo['delegatedBalanceEnergy'] ?? 0);
+		$targetBandwidth = (int) ($stakingInfo['delegatedBalanceBandwidth'] ?? 0);
+
+		if ($targetEnergy === 0 && $targetBandwidth === 0) {
+			return true;
+		}
+
+		$net = $this->computeDelegationNet($txs, $address);
+		$energy = 0;
+		$bandwidth = 0;
+
+		foreach ($net as $key => $amount) {
+			[, $type] = explode('|', $key, 2);
+			if ($type === 'ENERGY') {
+				$energy += $amount;
+			} else {
+				$bandwidth += $amount;
+			}
+		}
+
+		return $energy === $targetEnergy && $bandwidth === $targetBandwidth;
+	}
+
+	private function isCreditorDelegationTx(Transaction $tx, string $address): bool
+	{
+		$from = $tx->inputs[0]->address ?? '';
+
+		return $from !== '' && strcasecmp($from, $address) === 0;
+	}
+
+	private function delegationKey(string $delegateTo, string $type): string
+	{
+		return $delegateTo . '|' . strtoupper($type);
 	}
 
 	#[Override] public function getAssets(string $address): array
