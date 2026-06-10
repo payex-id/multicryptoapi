@@ -198,6 +198,13 @@ abstract class BlockbookAbstract implements BlockbookInterface, BlockchainDataRe
 		$response = $this->http()->get($uri)->getBody()->getContents();
 		$data = json_decode($response, true);
 
+		if (empty($data['result'])) {
+			$error = $data['error'] ?? 'unknown error';
+			throw new MultiCryptoApiException(
+				"Blockbook sendtx failed: {$error}. Response: {$response}"
+			);
+		}
+
 		return new PushedTX($data['result'], $hex->payload, $response);
 	}
 

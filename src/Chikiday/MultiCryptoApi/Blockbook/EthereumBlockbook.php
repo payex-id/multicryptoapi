@@ -4,8 +4,12 @@ namespace Chikiday\MultiCryptoApi\Blockbook;
 
 use Chikiday\MultiCryptoApi\Blockbook\Abstract\BlockbookAbstract;
 use Chikiday\MultiCryptoApi\Blockchain\Amount;
+use Chikiday\MultiCryptoApi\Blockchain\PushedTX;
+use Chikiday\MultiCryptoApi\Blockchain\RawTransaction;
 use Chikiday\MultiCryptoApi\Blockchain\RpcCredentials;
+use Chikiday\MultiCryptoApi\Enum\BroadcastMode;
 use Chikiday\MultiCryptoApi\Exception\MultiCryptoApiException;
+use Override;
 use Chikiday\MultiCryptoApi\Interface\EvmLikeInterface;
 use Chikiday\MultiCryptoApi\Interface\TokenAwareInterface;
 use Chikiday\MultiCryptoApi\Model\TokenInfo;
@@ -24,11 +28,31 @@ class EthereumBlockbook extends BlockbookAbstract implements TokenAwareInterface
 	protected array $tokens;
 	protected string $cacheDir;
 	protected ?\Closure $nonceProvider = null;
+	private ?Client $broadcastRpcClient = null;
 
 	public function setNonceProvider(\Closure $provider): static
 	{
 		$this->nonceProvider = $provider;
 		return $this;
+	}
+
+	#[Override]
+	public function pushRawTransaction(RawTransaction $hex): PushedTX
+	{
+		$mode = $this->getBroadcastMode();
+		if ($mode === BroadcastMode::Blockbook) {
+			return parent::pushRawTransaction($hex);
+		}
+
+		try {
+			return $this->pushViaRpc($hex);
+		} catch (\Throwable $e) {
+			if ($this->isNonRetryableBroadcastError($e) || $mode === BroadcastMode::Rpc) {
+				throw $e;
+			}
+
+			return parent::pushRawTransaction($hex);
+		}
 	}
 
 	public function __construct(
@@ -236,6 +260,60 @@ class EthereumBlockbook extends BlockbookAbstract implements TokenAwareInterface
 		$_headers = [];
 
 		return $this->rpc->execute($method, $params, [], null, $_headers);
+	}
+
+	private function getBroadcastMode(): BroadcastMode
+	{
+		$mode = $this->getOption('broadcastMode');
+		if (is_string($mode) && $mode !== '') {
+			return BroadcastMode::tryFrom($mode) ?? BroadcastMode::Blockbook;
+		}
+
+		// @deprecated use broadcastMode instead
+		$fallback = $this->getOption('broadcastFallbackToBlockbook');
+		if ($fallback === false) {
+			return BroadcastMode::Rpc;
+		}
+		if ($fallback === true) {
+			return BroadcastMode::RpcWithFallback;
+		}
+
+		return BroadcastMode::Blockbook;
+	}
+
+	private function getBroadcastRpcClient(): Client
+	{
+		$broadcastUrl = $this->getOption('broadcastRpcUrl');
+		if (!is_string($broadcastUrl) || $broadcastUrl === '' || $broadcastUrl === $this->credentials->uri) {
+			return $this->rpc;
+		}
+
+		return $this->broadcastRpcClient ??= new Client($broadcastUrl);
+	}
+
+	private function pushViaRpc(RawTransaction $hex): PushedTX
+	{
+		$txid = $this->getBroadcastRpcClient()->execute('eth_sendRawTransaction', [$hex->payload]);
+
+		if (empty($txid) || !is_string($txid)) {
+			throw new MultiCryptoApiException(
+				'eth_sendRawTransaction returned empty or non-string result: ' . json_encode($txid)
+			);
+		}
+
+		return new PushedTX($txid, $hex->payload, $txid);
+	}
+
+	private function isNonRetryableBroadcastError(\Throwable $e): bool
+	{
+		$msg = strtolower($e->getMessage());
+
+		return str_contains($msg, 'nonce too low')
+			|| str_contains($msg, 'insufficient funds')
+			|| str_contains($msg, 'already known')
+			|| str_contains($msg, 'replacement transaction underpriced')
+			|| str_contains($msg, 'transaction underpriced')
+			|| str_contains($msg, 'max fee per gas less than block base fee');
 	}
 
 	protected function jsonRpcWithRetry(string $method, array $params = [], int $retries = 5): mixed
