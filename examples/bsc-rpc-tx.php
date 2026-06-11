@@ -11,7 +11,7 @@ $keys = include_once __DIR__ . '/keys.php';
 
 $blockbook = new EthereumRpc(
 	new RpcCredentials(
-		"https://side-omniscient-pine.bsc.quiknode.pro/{$keys["QuickNode"]}/",
+		'https://bsc.nownodes.io/' . $keys['NowNodes'],
 		'https://bsc-blockbook.nownodes.io',
 		[
 			'api-key' => $keys['NowNodes'],
@@ -28,7 +28,7 @@ $blockbook = new EthereumRpc(
 );
 
 $time = microtime(true);
-$tx = $blockbook->getTx("0x9def784b5e613d67423a4a0440f5245d181b266fe26342eb19d811cdddb35e69");
+$tx = $blockbook->getTx("0x1f7d99a11f60134ef12a81978e144560e5b73142ccccf8cfbf3e9285f7d06b48");
 $time = microtime(true) - $time;
 
 echo "TX: " . $tx->txid . " loaded for {$time} s.\n";
