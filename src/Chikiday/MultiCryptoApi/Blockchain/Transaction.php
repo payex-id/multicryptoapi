@@ -170,6 +170,70 @@ readonly class Transaction
 	}
 
 	/**
+	 * All payment-like transfers from a blockbook-normalized tx (native outputs + tokenTransfers).
+	 * Address filtering is left to the consumer (same as blockchain stream → NewTxMessage).
+	 *
+	 * @return IncomingTransaction[]
+	 */
+	public function getPaymentTransfers(): array
+	{
+		if (!$this->isSuccess) {
+			return [];
+		}
+
+		$result = [];
+		$defaultFrom = $this->inputs[0]->address ?? '';
+
+		foreach ($this->outputs as $output) {
+			if (!$output->address || $output->amount->satoshi <= 0) {
+				continue;
+			}
+
+			$result[] = new IncomingTransaction(
+				$this->txid,
+				$defaultFrom,
+				$output->address,
+				$output->amount,
+				$this->blockNumber,
+				null,
+				$output->index,
+				$this->confirmations,
+				$this->isSuccess,
+			);
+		}
+
+		$seen = [];
+		foreach ($this->originData['tokenTransfers'] ?? [] as $transfer) {
+			$to = $transfer['to'] ?? null;
+			$from = $transfer['from'] ?? $defaultFrom;
+			if (!$to || !$from) {
+				continue;
+			}
+
+			$contract = $transfer['contract'] ?? $transfer['token'] ?? null;
+			$dedupeKey = strtolower($this->txid) . '|' . strtolower($to) . '|' . strtolower((string) $contract);
+			if (isset($seen[$dedupeKey])) {
+				continue;
+			}
+			$seen[$dedupeKey] = true;
+
+			$result[] = new IncomingTransaction(
+				$this->txid,
+				$from,
+				$to,
+				Amount::satoshi($transfer['value'] ?? '0', (int) ($transfer['decimals'] ?? 18)),
+				$this->blockNumber,
+				$contract,
+				0,
+				$this->confirmations,
+				$this->isSuccess,
+			);
+		}
+
+		return $result;
+	}
+
+	/**
 	 * @return IncomingTransaction[]
 	 */
 	public function getRelatedTransactions(string $address): array

@@ -18,6 +18,7 @@ use Chikiday\MultiCryptoApi\Blockchain\UTXO;
 use Chikiday\MultiCryptoApi\Exception\MultiCryptoApiException;
 use Chikiday\MultiCryptoApi\Interface\BlockbookInterface;
 use Chikiday\MultiCryptoApi\Interface\BlockchainDataResolver;
+use Chikiday\MultiCryptoApi\Model\IncomingTransaction;
 use Chikiday\MultiCryptoApi\Model\TokenInfo;
 use Chikiday\MultiCryptoApi\Util\Throttler;
 use GuzzleHttp\Client;
@@ -164,6 +165,21 @@ abstract class BlockbookAbstract implements BlockbookInterface, BlockchainDataRe
 		$data = $this->loadBlock($hash);
 
 		return $this->resolveBlock($data);
+	}
+
+	/**
+	 * @return IncomingTransaction[]
+	 */
+	public function extractPaymentTransfersFromBlock(Block $block): array
+	{
+		$result = [];
+		foreach ($block->payload['txs'] ?? [] as $txData) {
+			foreach ($this->resolveTx($txData)->getPaymentTransfers() as $incoming) {
+				$result[] = $incoming;
+			}
+		}
+
+		return $result;
 	}
 
 	#[Override] public function getAddress(string $address, bool $loadAssets = false): Address
