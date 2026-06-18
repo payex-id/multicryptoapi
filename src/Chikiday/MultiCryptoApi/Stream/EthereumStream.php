@@ -41,12 +41,44 @@ class EthereumStream extends AbstractStream
 
 	public function cancelSubscriptions(): StreamableInterface
 	{
-		$this->getLoop()->cancelTimer($this->timerId);
-		foreach ($this->subscriptions as $id) {
-			$this->unsubscribe($id);
+		if (isset($this->timerId)) {
+			$this->getLoop()->cancelTimer($this->timerId);
 		}
 
+		$this->closeConnection();
+
+		// Bookkeeping is tied to the closed socket, drop it so it cannot grow
+		// unbounded across reconnects (the old subscription/callback ids are
+		// useless once the connection they belong to is gone).
+		$this->subscriptions = [];
+		$this->callbacks = [];
+
 		return $this;
+	}
+
+	/**
+	 * Closes the underlying websocket connection and frees its file descriptor.
+	 *
+	 * Closing the socket implicitly drops every server-side eth_subscribe, so an
+	 * explicit eth_unsubscribe is both unnecessary and impossible on a connection
+	 * that is already stale. Previously the stale-reconnect loop never closed the
+	 * old socket, leaking one descriptor per reconnect until the process reached
+	 * FD_SETSIZE (1024) and stream_select() could no longer watch the stream,
+	 * at which point the listener silently stopped receiving blocks.
+	 */
+	private function closeConnection(): void
+	{
+		if (!isset($this->conn)) {
+			return;
+		}
+
+		try {
+			$this->conn->close();
+		} catch (\Throwable $e) {
+			$this->debug("Error closing websocket connection: {$e->getMessage()}");
+		}
+
+		unset($this->conn);
 	}
 
 	public function setStaleTimeout(int $staleTimeout): self
@@ -141,32 +173,6 @@ class EthereumStream extends AbstractStream
 
 				$this->debug("Subscribed to " . json_encode($params) . " with id: " . $result['result']);
 				$this->debug("Callbacks now: " . implode(', ', array_keys($this->callbacks)));
-			},
-			true
-		);
-	}
-
-	protected function unsubscribe(string $id): void
-	{
-		if (!isset($this->callbacks[$id])) {
-			return;
-		}
-
-		unset($this->subscriptions[$id]);
-
-		$this->callMethod(
-			'eth_unsubscribe',
-			[$id],
-			function ($result) use ($id) {
-				if (isset($result['error'])) {
-					$errorText = "Unsubscribe '{$id}' error: {$result['error']['message']}";
-					$this->debug($errorText);
-				} else {
-					if (isset($this->callbacks[$id])) {
-						unset($this->callbacks[$id]);
-					}
-					$this->debug("Unsubscribed {$id}");
-				}
 			},
 			true
 		);
@@ -402,6 +408,5 @@ class EthereumStream extends AbstractStream
 		$this->info("*** RECONNECT ***: Stale connection detected, stopping process...");
 		$this->cancelSubscriptions();
 		$this->started = false;
-//		$this->callbacks = [];
 	}
 }
